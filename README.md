@@ -8,6 +8,8 @@ times the code with `llvm-mca`.
 | What | Command | Shows |
 |---|---|---|
 | One folder per type and intrinsic (`i128-ctlz`, `v8i32-cttz`, ...) | `./run_all.sh` | Reported cost vs. real code, what each generation's hardware buys, and whether the patch changes the generated code |
+| `cpp/` | `cpp/run_cpp.py` (also run by `./run_all.sh`) | Real C++ for each pattern the patch speeds up, measured with upstream and patched LLVM and logged locally to `records/cpp-history.csv` |
+| `cpp/` on IBM Z | `cpp/run_on_z.sh` | The same C++ timed on real IBM Z hardware, logged to `records/hw-history.csv` |
 
 You need `opt`, `llc` and `llvm-mca` in `../llvm-project/build/bin`, plus
 `opt-upstream` (an `opt` built without the patch; see the last section).
@@ -121,6 +123,107 @@ too small a part of the loop to move the vectorization factor.
 - **All three:** inside a loop the zero/all-ones constants are created once,
   so the real per-element count is lower than the patched cost (for
   example 18 vs. 26 for ctlz).
+
+## C++ examples (`cpp/`)
+
+```sh
+cpp/run_cpp.py                     # all CPUs, appends to records/cpp-history.csv (local)
+cpp/run_cpp.py --cpus z13,z17
+cpp/run_cpp.py --source my.cpp     # measure the extern "C" functions of any file
+```
+
+`cpp/examples.cpp` is ordinary C++ for the patterns behind the toy
+speedups. For each CPU the script runs:
+
+1. `clang++ -target s390x-linux-gnu -march=<cpu> -O2 -Xclang -disable-llvm-passes`:
+   front end only, so no LLVM optimization happens in clang. It uses
+   `$CLANG`, else a `clang++` in the LLVM build, else the one on `PATH`. On
+   this Mac that is Apple clang, which can emit s390x IR.
+2. `opt-upstream -O2` and `opt -O2` (the patched build), then `llc`.
+3. `llvm-mca` for each `extern "C"` function.
+
+Each run appends one row per function and CPU to `records/cpp-history.csv`,
+with the time, the LLVM commit and a fingerprint of the uncommitted patch
+(`git diff HEAD` hashed), so runs of different patch versions can be told
+apart. That file is a local log and is git-ignored: the results can be
+regenerated, and the current ones are committed in
+`cpp/prebuilt/estimates.csv` with `MANIFEST.txt`. Cycles are llvm-mca
+estimates, not hardware timings.
+
+| Function | Pattern | Effect with the patch (llvm-mca) |
+|---|---|---|
+| `first_free_slots` | two i32 `countr_zero` from memory | **5.9× faster** z13/z14, 2.6× z15/z16, 2.3× z17 |
+| `count_permissions` | two i32 `popcount` from memory | **7.3× faster** z13, 1.3× z15–z17; z14 already vector |
+| `popcount_u128` | 128-bit popcount as two 64-bit halves, value passed by value | **2.7× faster** z13, 4.4× z14 |
+| `bitset128_size` | the same count, read through a pointer | **1.6× slower** z13; same speed z14 |
+
+The pointers in the first two are `__restrict`. Without it the compiler
+must assume `out[0]` may overlap `in[1]`, cannot combine the two operations,
+and the patch changes nothing.
+
+`bitset128_size` is a slowdown the toys did not show. Read through a
+pointer, the two halves load straight into general registers, so upstream's
+two scalar popcounts run side by side. The patched code is shorter (9
+instructions against 19) but one serial chain through a vector register and
+back (`vlgvg`): 24 cycles against 15 on z13. The InstCombine fold prototype
+does not help here (22 cycles).
+
+## Running the C++ examples on IBM Z hardware
+
+The repository carries everything an IBM Z machine needs, so there is no
+LLVM or clang to build there.
+
+**On the build machine** (this one), after changing the patch:
+
+```sh
+cpp/run_cpp.py          # or ./run_all.sh; refreshes cpp/prebuilt/
+git add cpp/prebuilt && git commit && git push
+```
+
+`cpp/prebuilt/<march>/{upstream,patched}.o` are the compiled functions from
+`examples.cpp` for each level z13–z17, with the matching `.s` for reading.
+`MANIFEST.txt` records the LLVM commit and patch fingerprint, and
+`estimates.csv` the llvm-mca estimates.
+
+**On the IBM Z machine** (s390x Linux with `gcc`):
+
+```sh
+git clone <this repository> && cd <it>
+cpp/run_on_z.sh                   # every level this machine can run
+cpp/run_on_z.sh --cpus z13,z14
+ROUNDS=5 cpp/run_on_z.sh          # more rounds on a busy machine
+```
+
+For each level the script:
+1. links `cpp/bench.c` with the upstream and the patched object using `gcc`;
+2. checks every result against reference code on 4096 inputs (zero,
+   all-ones, single bits and random values) and skips the level on any
+   mismatch;
+3. runs the two binaries alternately `ROUNDS` times (default 3). Each run
+   reports the median of 9 timed passes; the script takes the median across
+   rounds;
+4. prints upstream ns, patched ns and speedup per function next to the
+   llvm-mca estimate, and appends them to `records/hw-history.csv` with the
+   machine type, kernel and compiler version.
+
+Commit `records/hw-history.csv` from the IBM Z machine to keep the results.
+
+Notes:
+- **Levels newer than the machine** stop with an illegal instruction and are
+  reported as not supported. Older levels run, but they show how that code
+  performs on this machine's processor. For example, `-march=z13` code on a
+  z16 is not a z13 timing.
+- **Smaller ratios than llvm-mca.** These are tiny functions called in a
+  loop over independent inputs. Call overhead and loads are part of every
+  measurement, and the loop measures throughput, while llvm-mca's numbers
+  follow one dependent chain. Expect smaller ratios than the estimates.
+  `bitset128_size` is the case to watch, since its slowdown is a latency
+  effect.
+- **Shared machines** (LPAR or z/VM guests) can be noisy: use more `ROUNDS`
+  and compare the `min` column printed by `bench` in `cpp/build-z/`.
+- The script was tested on macOS with native stand-ins for the objects
+  (`--force`), including a deliberately wrong function. It has not yet run on
+  IBM Z hardware.
 
 ## Why the patch has fix A
 

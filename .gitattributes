@@ -1,0 +1,2 @@
+# Compiled IBM Z objects: never change line endings or diff as text.
+cpp/prebuilt/**/*.o binary
