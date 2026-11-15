@@ -10,12 +10,12 @@ times the code with `llvm-mca`.
   - Element width: **128 bits**
     ```cpp
     if (VT.getScalarSizeInBits() == 128) {
-      Op = DAG.getNode(ISD::BITCAST, DL, MVT::v2i64, Op);
-      Op = DAG.getNode(ISD::CTPOP, DL, MVT::v2i64, Op);
+      Op = DAG.getNode(ISD::BITCAST, DL, MVT::v2i64, Op);                      // 0 cost
+      Op = DAG.getNode(ISD::CTPOP, DL, MVT::v2i64, Op);                        // 3 on z13 (calls `lowerCTPOP()` and lowered through "case 64"), 1 on z14+ (`vpopct{b,h,f,g}`)
       SDValue Tmp = DAG.getSplatBuildVector(MVT::v2i64, DL,
-                                            DAG.getConstant(0, DL, MVT::i64));
-      Op = DAG.getNode(SystemZISD::VSUM, DL, VT, Op, Tmp);
-      return Op;
+                                            DAG.getConstant(0, DL, MVT::i64)); // 1 cost `vgbm` to generate byte mask of all 0's
+      Op = DAG.getNode(SystemZISD::VSUM, DL, VT, Op, Tmp);                     // 1 cost `vsumqg` to sum quadword composed of grands
+      return Op;                                                               // 5 cost on z13, 3 cost on z14+
     }
     ```
     - First, the vector is casted to into `2 lanes` each with width of `64 bits`
