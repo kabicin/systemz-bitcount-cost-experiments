@@ -66,16 +66,46 @@ if (VT.getScalarSizeInBits() == 128) {
 ```
 - First, bitcast `16 lanes` of `8 bits`
 - Second, call the `SYSTEMZISD::POPCNT` to get the population count.
-  - **Performance Note**: This total cost should be 1. The upstream records it as 2 from the generic cost impl. because it is labelled `Custom`.
-    - Remember, `setOperationAction(ISD::CTPOP, VT, Custom); // z13: lowerCTPOP again` labels it as `Custom`. Then, the generic cost impl. reports custom events as `LT.first * 2` in **`llvm/include/llvm/CodeGen/BasicTTIImpl.h`**
-    ```cpp
-    } else if (!BitManipSplit && TLI->isOperationCustom(ISD, LT.second)) {
-      // If the operation is custom lowered then assume
-      // that the code is twice as expensive.
-      return (LT.first * 2);
-    }
-    ```
+- **Performance Note**: This total cost should be 1. The upstream records it as 2 for z13 from the generic cost impl. because it is labelled `Custom`.
+  - Remember, `setOperationAction(ISD::CTPOP, VT, Custom); // z13: lowerCTPOP again` labels it as `Custom`. Then, the generic cost impl. reports custom events as `LT.first * 2` in **`llvm/include/llvm/CodeGen/BasicTTIImpl.h`**
+  ```cpp
+  } else if (!BitManipSplit && TLI->isOperationCustom(ISD, LT.second)) {
+    // If the operation is custom lowered then assume
+    // that the code is twice as expensive.
+    return (LT.first * 2);
+  }
+  ```
 
+#### Element width: **16 bits**
+
+```cpp
+  if (VT.isVector()) {
+    Op = DAG.getNode(ISD::BITCAST, DL, MVT::v16i8, Op);                          // 0 cost
+    Op = DAG.getNode(SystemZISD::POPCNT, DL, MVT::v16i8, Op);                    // 1 cost, `vpopct %v0, %v24, 0`
+    switch (VT.getScalarSizeInBits()) {
+    case 16: {
+      Op = DAG.getNode(ISD::BITCAST, DL, VT, Op);                                // 0 cost
+      SDValue Shift = DAG.getConstant(8, DL, MVT::i32);                          // 0 cost, get a constant `8`
+      SDValue Tmp = DAG.getNode(SystemZISD::VSHL_BY_SCALAR, DL, VT, Op, Shift);  // 1 cost, `veslh %v1, %v0, 8` - shift left by 8
+      Op = DAG.getNode(ISD::ADD, DL, VT, Op, Tmp);                               // 1 cost, `vah %v0, %v0, %v1` - adds 
+      Op = DAG.getNode(SystemZISD::VSRL_BY_SCALAR, DL, VT, Op, Shift);           // 1 cost, `vesrlh %v24, %v0, 8` - revert the shift left
+      break;
+    }
+    ...
+    default:
+      llvm_unreachable("Unexpected type");
+    }
+    return Op;                                                                    // 4 total cost
+  }
+```
+- 1. bitcast at 0 cost
+  2. `SystemZISD::POPCNT` gives a base-case for i8 so `lowerCTOP()` is not called again
+  3. bitcast at 0 cost
+  4. retrieve constant 8 at 0 cost
+  5. Shift left by 8 to isolate the second byte. (`0x0402` -> `0x02`)
+  6. Add the original popcnt result (`0x02 + 0x0402 = 0x0602`)
+  7. Revert the shift left to produce the final result (`0x0602 >> 8 = 0x0006`) then store this into a vector register `%v24`.
+- **Performance Note**: This total cost should be 4. The upstream reports 2 for the similar reason as the above example. This total cost only applies to z13 because z14+ has it's own vector facilities. This means the upstream is currently understating the cost it takes to run POPCNT for v8i16 on v13.
 
 #### Code Reference:
 ```cpp
