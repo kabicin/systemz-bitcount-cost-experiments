@@ -47,7 +47,7 @@ if (VT.getScalarSizeInBits() == 128) {
     ```
 - Third, we run `SDValue Tmp = DAG.getSplatBuildVector(MVT::v2i64, DL, DAG.getConstant(0, DL, MVT::i64));` which gives `2 lanes` of `64 bits` zero'd.
 - Lastly, `Op = DAG.getNode(SystemZISD::VSUM, DL, VT, Op, Tmp);` adds the `2 lanes` of `64 bits` into a single `128 bit` total.
-
+- Overall, `5 * NumVectors` cost on z13 and  `3 * NumVectors` cost on z14+
 #### Element width: **8 bits**
 
 ```cpp
@@ -66,7 +66,7 @@ if (VT.getScalarSizeInBits() == 128) {
 ```
 - First, bitcast `16 lanes` of `8 bits`
 - Second, call the `SYSTEMZISD::POPCNT` to get the population count.
-- **Performance Note**: This total cost should be 1. The upstream records it as 2 for z13 from the generic cost impl. because it is labelled `Custom`.
+- **Performance Note**: This total cost should be `1 * NumVectors`. The upstream records it as `2 * NumVectors` for z13 from the generic cost impl. because it is labelled `Custom`.
   - Remember, `setOperationAction(ISD::CTPOP, VT, Custom); // z13: lowerCTPOP again` labels it as `Custom`. Then, the generic cost impl. reports custom events as `LT.first * 2` in **`llvm/include/llvm/CodeGen/BasicTTIImpl.h`**
   ```cpp
   } else if (!BitManipSplit && TLI->isOperationCustom(ISD, LT.second)) {
@@ -99,13 +99,43 @@ if (VT.getScalarSizeInBits() == 128) {
   }
 ```
 - 1. bitcast at 0 cost
-  2. `SystemZISD::POPCNT` gives a base-case for i8 so `lowerCTOP()` is not called again
+  2. Stores the count result in `%v0`. `SystemZISD::POPCNT` gives a base-case for i8 so `lowerCTOP()` is not called again
   3. bitcast at 0 cost
   4. retrieve constant 8 at 0 cost
   5. Shift left by 8 to isolate the second byte. (`0x0402` -> `0x02`)
   6. Add the original popcnt result (`0x02 + 0x0402 = 0x0602`)
   7. Revert the shift left to produce the final result (`0x0602 >> 8 = 0x0006`) then store this into a vector register `%v24`.
-- **Performance Note**: This total cost should be 4. The upstream reports 2 for the similar reason as the above example. This total cost only applies to z13 because z14+ has it's own vector facilities. This means the upstream is currently understating the cost it takes to run POPCNT for v8i16 on v13.
+- **Performance Note**: This total cost should be `4 * NumVectors`. The upstream reports `2 * NumVector` for the similar reason as the above example. This total cost only applies to z13 because z14+ has it's own vector facilities. This means the upstream is currently understating the cost it takes to run POPCNT for v8i16 on v13.
+
+#### Element width: **32 bits**
+
+```cpp
+  if (VT.isVector()) {
+    Op = DAG.getNode(ISD::BITCAST, DL, MVT::v16i8, Op);                          // 0 cost
+    Op = DAG.getNode(SystemZISD::POPCNT, DL, MVT::v16i8, Op);                    // 1 cost, `vpopct %v0, %v24, 0`
+    switch (VT.getScalarSizeInBits()) {
+    case 32: {
+      SDValue Tmp = DAG.getSplatBuildVector(MVT::v16i8, DL,
+                                            DAG.getConstant(0, DL, MVT::i32));   // 1 shared cost due to machine LICM, `vgbm %v1, 0` 
+      Op = DAG.getNode(SystemZISD::VSUM, DL, VT, Op, Tmp);                       // 1 cost, `vsumb %v24, %v0, %v1` adds 4 byte counts in each 32 bit lane
+                                                                                 //   - A composition of:
+                                                                                 //         `vpopct %v0, %v24, 0`  produces Op
+                                                                                 //         `vgbm %v1, 0` produces Tmp
+                                                                                 //         `vsumb %v24, %v0, %v1` produces the final v4i32 result summed across individual "b" - bytes v16i8
+      break;                                                                     //   - VT: v4i32, Op: v16i8, Tmp: v16i8
+    }
+    ...
+    default:
+      llvm_unreachable("Unexpected type");
+    }
+    return Op;                                                                    // 2 total cost + 1 shared cost of `vgbm %v1, 0` 
+  }
+```
+- 1. bitcast at 0 cost
+  2. Stores the count result in `%v0`. `SystemZISD::POPCNT` gives a base-case for i8 so `lowerCTOP()` is not called again
+  3. The constant 0 is stored into register `%v1`. It gets hoisted by the compiler so its a `O(1)` cost.
+  4. Sums two v16i8 elements (per byte entry) into a v4i32 result at cost 1.
+- **Performance Note**: This total cost should be `2 * NumVectors + 1`. The upstream reports `2 * NumVectors` for the similar reason as the above example. This total cost only applies to z13 because z14+ has it's own vector facilities.
 
 #### Code Reference:
 ```cpp
