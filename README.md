@@ -1,4 +1,4 @@
-# SystemZ bit-count cost toys (IBM Z)
+# SystemZ bit-count cost experiments (IBM Z)
 
 Runnable experiments for the SystemZ bit-count cost patch (branch
 `systemz-bitcount-costs` in `../llvm-project`). Each one compiles small
