@@ -5,17 +5,93 @@ Runnable experiments for the SystemZ bit-count cost patch (branch
 kernels with the upstream and patched `opt`, then `llc`, for z13–z17, and
 times the code with `llvm-mca`.
 
-## Cost Chart for CTPOP lowering
+## Cost Chart for `cttz`
+- `<without zero poison> / <with zero poison>`
+
+| | i8 | i16 | i32 | i64 | i128 | 128-bit vector | 256-bit vector |
+|---|---|---|---|---|---|---|---|
+| z13 | 5 | 8 | 9 | 6 / 4 | 8 | 1 | 2 |
+| z14 | 5 | 8 | 9 | 6 / 4 | 6 | 1 | 2 |
+| z15 / z16 | 4 | 4 | 4 | 3 | 6 | 1 | 2 |
+| z17 | 2 / 1 | 2 / 1 | 2 / 1  | 1  | 1 | 1 | 2 |
+ 
+
+#### Element width: **128 bits**
+
+- z17: cost 1
+  
+  ```nasm
+  vl    %v0, 0(%r3), 3   # 0 cost, load
+  vctzq %v0, %v0         # 1 cost, count trailing zeros
+  vst   %v0, 0(%r2), 3   # 0 cost, store
+  ```
+
+The above case had `vctzq` to do it in one step. However, < z17 requires expansion:
+
+```cpp
+if (!Subtarget.hasVectorEnhancements3()) {
+  ...
+  setOperationAction(ISD::CTTZ,  MVT::i128, Expand); // < z17
+}
+```
+
+- Older CPU architectures did not have cttz. It is replaced by `popcount(~x & (x-1))`
+**`llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp:11437`**
+```cpp
+SDValue Tmp = DAG.getNode(
+  ISD::AND, dl, VT,
+  DAG.getNOT(dl, Op, VT),                                           // ~x
+  DAG.getNode(ISD::SUB, dl, VT, Op, DAG.getConstant(1, dl, VT))     // x-1
+);                                                                  // ~x & (x-1)
+return DAG.getNode(ISD::CTPOP, dl, VT, Tmp);                        // popcount(~x & (x-1)) : CTPOP which is available between z13-z17
+```
+- How?
+  ```
+  x          = ...1011 0100 0000
+  x - 1      = ...1011 0011 1111 # -1 will flip the bits up to the first 1 from the RHS
+  ~x         = ...0100 1011 1111 # ~ will create a number that forgets the history of numbers to the left and including the first 1 from RHS
+  ~x & (x-1) = ...0000 0011 1111 # ANDing these numbers together gives the cttz count
+  ```
+- The above eventually converts to machine instructions with costs detailed below.
+
+- z14/z15/z16: cost 6
+  
+  ```nasm
+  vl      %v0, 0(%r3), 3  # 0 cost, load
+  vgbm    %v1, 65535      # 1 cost, v1 = all ones
+  vaq     %v1, %v0, %v1   # 1 cost, v1 = x + (-1) = x - 1
+  vnc     %v0, %v1, %v0   # 1 cost, v0 = (x - 1) & ~x   (complement)
+  vpopctg %v0, %v0        # 1 cost, popcount of each 64-bit half
+  vgbm    %v1, 0          # 1 cost, v1 = 0
+  vsumqg  %v0, %v0, %v1   # 1 cost, sum the v2i64 into a v1i128 result
+  vst     %v0, 0(%r2), 3  # 0 cost, store
+                          # 6 total cost
+  ```
+
+- z13: cost 8
+  - `vpopctg` doesn't exist on z13 (see `ctpop` lowering explanation below), so it needs to do `vpopct` byte-by-byte.
+  - this means, there are two extra operations needed to perform a horizontal sum on the `vpopct` results
+  ```nasm
+  vl      %v0, 0(%r3), 3  # 0 cost, load
+  vgbm    %v1, 65535      # 1 cost, v1 = all ones
+  vaq     %v1, %v0, %v1   # 1 cost, v1 = x + (-1) = x - 1
+  vnc     %v0, %v1, %v0   # 1 cost, v0 = (x - 1) & ~x   (complement)
+  vpopct  %v0, %v0        # 1 cost, popcount of per each v16i8
+  vgbm    %v1, 0          # 1 cost, v1 = 0
+  vsumb   %v0, %v0, %v1   # 1 cost, sums v16i8 into a v4i32 result
+  vsumgf  %v0, %v0, %v1   # 1 cost, sums v4i32 into a v2i64 result
+  vsumqg  %v0, %v0, %v1   # 1 cost, sum the v2i64 into a v1i128 result
+  vst     %v0, 0(%r2), 3  # 0 cost, store
+                          # 8 total cost
+  ```
+
+## Cost Chart for `ctpop` lowering
 | | i8 | i16 | i32 | i64 | i128 |
 |---|---|---|---|---|---|
 | z13 | `N` | `4N` | `2N+1` | `3N+1` | `5` |
 | z14+ (VE1) | `N` | `N` | `N` | `N` | `3` |
 
-## Cost Chart for i128 CTPOP lowering
-
-
-
-## How SystemZ handles CTPOP lowering
+## How SystemZ handles `ctpop` lowering
 - Within the **`lowerCTPOP()`** function in **`llvm/lib/Target/SystemZ/SystemZIselLowering.cpp`**
 
 #### Element width: **128 bits**
