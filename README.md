@@ -134,9 +134,39 @@ if (VT.getScalarSizeInBits() == 128) {
 - 1. bitcast at 0 cost
   2. Stores the count result in `%v0`. `SystemZISD::POPCNT` gives a base-case for i8 so `lowerCTOP()` is not called again
   3. The constant 0 is stored into register `%v1`. It gets hoisted by the compiler so its a `O(1)` cost.
-  4. Sums two v16i8 elements (per byte entry) into a v4i32 result at cost 1.
+  4. Sums two v16i8 elements (collapses 4-byte entries together) into a v4i32 result at cost 1.
 - **Performance Note**: This total cost should be `2 * NumVectors + 1`. The upstream reports `2 * NumVectors` for the similar reason as the above example. This total cost only applies to z13 because z14+ has it's own vector facilities.
 
+#### Element width: **64 bits**
+
+```cpp
+  if (VT.isVector()) {
+    Op = DAG.getNode(ISD::BITCAST, DL, MVT::v16i8, Op);                          // 0 cost
+    Op = DAG.getNode(SystemZISD::POPCNT, DL, MVT::v16i8, Op);                    // 1 cost, `vpopct %v0, %v24, 0`
+    switch (VT.getScalarSizeInBits()) {
+    case 64: {
+      SDValue Tmp = DAG.getSplatBuildVector(MVT::v16i8, DL,
+                                            DAG.getConstant(0, DL, MVT::i32));   // 1 shared cost due to machine LICM, `vgbm %v1, 0` 
+      Op = DAG.getNode(SystemZISD::VSUM, DL, MVT::v4i32, Op, Tmp);               // 1 cost, `vsumb %v0, %v0, %v1` adds two v16i8 to get a v4i32 result
+      Tmp = DAG.getNode(ISD::BITCAST, DL, MVT::v4i32, Tmp);                      // 0 cost
+      Op = DAG.getNode(SystemZISD::VSUM, DL, VT, Op, Tmp);                       // 1 cost, `vsumgf %24, %v0, %v1` adds two v4i32 to get a v2i64 result
+      break;
+    }
+    ...
+    default:
+      llvm_unreachable("Unexpected type");
+    }
+    return Op;                                                                    // 3 total cost + 1 shared cost of `vgbm %v1, 0` 
+  }
+```
+- 1. bitcast at 0 cost
+  2. Stores the count result in `%v0`.
+  3. The constant 0 is stored into register `%v1`. It gets hoisted by the compiler so its a `O(1)` cost.
+  4. Sums two v16i8 elements (collapses 4 byte-adjacent entries together) into a v4i32 result at cost 1.
+  5. bitcast at 0 cost
+  6. Sums two v4i32 elements (collapses 2 32bit-adjacent entries together) into a v2i64 result at cost 1.
+- **Performance Note**: This total cost should be `3 * NumVectors + 1`. The upstream reports `2 * NumVectors` for the similar reason as the above example. This total cost only applies to z13 because z14+ has it's own vector facilities.
+- 
 #### Code Reference:
 ```cpp
 SDValue SystemZTargetLowering::lowerCTPOP(SDValue Op,
