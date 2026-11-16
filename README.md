@@ -84,6 +84,7 @@ return DAG.getNode(ISD::CTPOP, dl, VT, Tmp);                        // popcount(
   vst     %v0, 0(%r2), 3  # 0 cost, store
                           # 8 total cost
   ```
+- Actually, `vsumb` -> `vsumgf` -> `vsumqg` can be simplified to `vsumb` -> `vsumqf` but possibly addressed in another PR for `lowerCTPOP`.
 
 ## Cost Chart for `ctpop` lowering
 | | i8 | i16 | i32 | i64 | i128 |
