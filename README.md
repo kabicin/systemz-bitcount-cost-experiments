@@ -5,6 +5,16 @@ Runnable experiments for the SystemZ bit-count cost patch (branch
 kernels with the upstream and patched `opt`, then `llc`, for z13–z17, and
 times the code with `llvm-mca`.
 
+## Cost Chart for CTPOP lowering
+| | i8 | i16 | i32 | i64 | i128 |
+|---|---|---|---|---|---|
+| z13 | `N` | `4N` | `2N+1` | `3N+1` | `5` |
+| z14+ (VE1) | `N` | `N` | `N` | `N` | `3` |
+
+## Cost Chart for i128 CTPOP lowering
+
+
+
 ## How SystemZ handles CTPOP lowering
 - Within the **`lowerCTPOP()`** function in **`llvm/lib/Target/SystemZ/SystemZIselLowering.cpp`**
 
