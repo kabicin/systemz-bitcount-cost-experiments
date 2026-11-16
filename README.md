@@ -35,7 +35,7 @@ if (!Subtarget.hasVectorEnhancements3()) {
 }
 ```
 
-- Older CPU architectures did not have cttz. It is replaced by `popcount(~x & (x-1))`
+- Older CPU architectures did not have cttz. It is replaced by `popcount(~x & (x-1))` (I also think this popcount solution not optimal (at least for) SystemZ and should be re-implemented with custom cttz lowering)
 **`llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp:11437`**
 ```cpp
 SDValue Tmp = DAG.getNode(
