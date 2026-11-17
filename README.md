@@ -183,6 +183,19 @@ ctzg  %r2, %r2         # 1 total cost
 ```
 
 #### Element width: **16 bits**
+- z13/z14: 8 cost
+```nasm
+ahik   %r0, %r2, -1         # 1 cost, r0 = x - 1
+xilf   %r2, 4294967295      # 1 cost, r2 = ~x
+nr     %r0, %r2             # 1 cost, r0 = (x - 1) & ~x
+llhr   %r0, %r0             # 1 cost, zero-extend the low halfword
+popcnt %r0, %r0             # 1 cost, per-byte popcount -> [0, 0, c1, c0]
+risblg %r1, %r0, 16, 151, 8 # 1 cost, r1 = (r0 << 8) & 0xFF00 -> [0, 0, c0, 0]
+ar     %r0, %r1             # 1 cost, byte 1 = c1 + c0
+srlk   %r2, %r0, 8          # 1 cost, shift right so the sum lands in the low byte
+                            # 8 total cost
+```
+
 - z15/z16: 4 cost
 ```nasm
 ahik   %r0, %r2, -1      # 1 cost, r0 = x - 1
@@ -204,6 +217,15 @@ ctzg  %r2, %r2 # 1 total cost
 ```
 
 #### Element width: **8 bits**
+- z13/z14: 5 cost
+```nasm
+ahik   %r0, %r2, -1         # 1 cost, r0 = x - 1
+xilf   %r2, 4294967295      # 1 cost, r2 = ~x   (XOR with 0xFFFFFFFF)
+nr     %r0, %r2             # 1 cost, r0 = (x - 1) & ~x
+llcr   %r0, %r0             # 1 cost, zero-extend the low byte (the rest becomes 0)
+popcnt %r2, %r0             # 1 cost, per-byte popcount (no M3)
+                            # 5 total cost
+```
 
 - z15/z16: 4 cost
 ```nasm
