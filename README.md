@@ -144,6 +144,22 @@ popcnt %r2, %r0, 8    # 1 cost, r2 = # of 1s in r0
 - (cttz and cttz_zero_poison) z17: 1 cost
     - Using: `ctzg` at 1 total cost.
 
+#### Element width: **32 bits**
+
+- z13/z14: 9 cost
+```nasm
+ahik   %r0, %r2, -1          # 1 cost, r0 = x - 1                (32-bit)
+xilf   %r2, 4294967295       # 1 cost, r2 = ~x                   (32-bit NOT)
+nr     %r0, %r2              # 1 cost, r0 = (x - 1) & ~x         (32-bit AND)
+popcnt %r0, %r0              # 1 cost, per-byte 1-bit counts     (M3 = 0)
+sllk   %r1, %r0, 16          # 1 cost, \
+ar     %r0, %r1              # 1 cost,  | add the 4 low byte counts
+sllk   %r1, %r0, 8           # 1 cost,  | into the top byte of the word
+ar     %r0, %r1              # 1 cost, /
+srlk   %r2, %r0, 24          # 1 cost, shift the top byte down -> result
+                             # 9 total cost
+```
+
 ## Cost Chart for `ctpop` lowering
 | | i8 | i16 | i32 | i64 | i128 |
 |---|---|---|---|---|---|
