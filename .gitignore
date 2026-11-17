@@ -8,7 +8,7 @@ __pycache__/
 # macOS
 .DS_Store
 
-# IBM Z hardware runs (cpp/run_on_z.sh)
+# IBM Z hardware runs (cpp/run_on_z.sh, toy_on_z.sh)
 build-z/
 
 # Editors
@@ -17,14 +17,20 @@ build-z/
 *.swp
 *~
 
-# Keep the prebuilt objects for cpp/run_on_z.sh even if a global ignore
-# rule (for example *.o) would drop them.
+# Keep the prebuilt objects for cpp/run_on_z.sh and toy_on_z.sh even if a
+# global ignore rule (for example *.o) would drop them.
 !cpp/prebuilt/
 !cpp/prebuilt/**
+!*/prebuilt/
+!*/prebuilt/**
 
 # Local log of llvm-mca runs (regenerate with cpp/run_cpp.py; the current
 # estimates are committed in cpp/prebuilt/estimates.csv)
 records/cpp-history.csv
+
+# Generated spreadsheet report, and Office lock files left while it is open
+bitcount-improvements.xlsx
+~$*
 
 # Core dumps if a benchmark crashes on IBM Z (e.g. illegal instruction)
 core
