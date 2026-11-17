@@ -5,6 +5,10 @@ Runnable experiments for the SystemZ bit-count cost patch (branch
 kernels with the upstream and patched `opt`, then `llc`, for z13–z17, and
 times the code with `llvm-mca`.
 
+## Table of Contents
+- [Cost Chart for `cttz`](#cost-chart-for-cttz)
+- [Cost Chart for `ctpop`](#cost-chart-for-ctpop)
+  
 ## Cost Chart for `cttz`
 - `<without zero poison> / <with zero poison>`
 
@@ -247,7 +251,7 @@ ctzg  %r2, %r2         # 1 cost
 ctzg  %r2, %r2 # 1 total cost
 ```
 
-## Cost Chart for `ctpop` lowering
+## Cost Chart for `ctpop`
 | | i8 | i16 | i32 | i64 | i128 |
 |---|---|---|---|---|---|
 | z13 | `N` | `4N` | `2N+1` | `3N+1` | `5` |
