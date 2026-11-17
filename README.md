@@ -11,13 +11,71 @@ times the code with `llvm-mca`.
 - [Cost Chart for `ctpop`](#cost-chart-for-ctpop)
 
 ## Cost Chart for `ctlz`
+- `<without zero poison> / <with zero poison>`
 
 | | i8 | i16 | i32 | i64 | i128 | 128-bit vector | 256-bit vector |
 |---|---|---|---|---|---|---|---|
 | z13 | 4 / 2 | 4 / 2 | 3 / 2 | 1 | 26 | 1 | 2 |
-| z14 | 4 / 2 | 4 / 2 | 3 / 2 | 1 | 24| 1 | 2 |
+| z14 | 4 / 2 | 4 / 2 | 3 / 2 | 1 | 24 | 1 | 2 |
 | z15 / z16 | 4 / 2 | 4 / 2 | 3 / 2 | 1 | 24 | 1 | 2 |
 | z17 | 4 / 2 | 4 / 2 | 3 / 2  | 1  | 1 | 1 | 2 |
+
+Count Leading Zeros
+- There are two possibilities when using CTLZ, first (i1 false is ISD::CTLZ) is fully defined, when x = 0 it returns the total number of bits of the type. Second (i1 true is ISD::CTLZ_ZERO_POISON), relaxes the need to count leading zeros when x = 0 (i.e., the total number of bits of the type) and allow returning a poison value, so the compiler assumes that the x provided is != 0.
+
+**`llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.cpp`**
+```cpp
+case Intrinsic::ctlz: {
+  SDValue Arg = getValue(I.getArgOperand(0));                                 // x 
+  ConstantInt *CI = cast<ConstantInt>(I.getArgOperand(1));                    // i1 true/false 
+  EVT Ty = Arg.getValueType();
+  setValue(&I, DAG.getNode(CI->isZero() ? ISD::CTLZ : ISD::CTLZ_ZERO_POISON,  // if i1 is false, then use ctlz, otherwise, use ctlz_zero_poison
+                           sdl, Ty, Arg));
+  return;
+}
+```
+
+#### Element width: **128 bits**
+
+- z15/z16: 24 cost
+```nasm
+vl      %v0, 0(%r3), 3    # 0 cost, load x (ABI)
+
+# 1. Smear the leading 1 into every lower bit: x |= x >> 1, 2, 4, 8, 16, 32, 64
+vrepib  %v1, 1            # 1 cost, shift amount 1 in every byte
+vsrl    %v1, %v0, %v1     # 1 cost, x >> 1 (bit shift, 0–7)
+vo      %v0, %v0, %v1     # 1 cost, x |= ...
+vrepib  %v1, 2            # 1 cost, shift amount 2 in every byte
+vsrl    %v1, %v0, %v1     # 1 cost, x >> 2
+vo      %v0, %v0, %v1     # 1 cost, x |= ...
+vrepib  %v1, 4            # 1 cost, shift amount 4 in every byte
+vsrl    %v1, %v0, %v1     # 1 cost, x >> 4
+vo      %v0, %v0, %v1     # 1 cost, x |= ...
+vrepib  %v1, 8            # 1 cost, shift amount 8 in every byte
+vsrlb   %v1, %v0, %v1     # 1 cost, x >> 8 (byte shift: 1 byte)
+vo      %v0, %v0, %v1     # 1 cost, x |= ...
+vrepib  %v1, 16           # 1 cost, shift amount 16 in every byte
+vsrlb   %v1, %v0, %v1     # 1 cost, x >> 16 (2 bytes)
+vo      %v0, %v0, %v1     # 1 cost, x |= ...
+vrepib  %v1, 32           # 1 cost, shift amount 32 in every byte
+vsrlb   %v1, %v0, %v1     # 1 cost, x >> 32 (4 bytes)
+vo      %v0, %v0, %v1     # 1 cost, x |= ...
+vrepib  %v1, 64           # 1 cost, shift amount 64 in every byte
+vsrlb   %v1, %v0, %v1     # 1 cost, x >> 64 (8 bytes)
+
+# 2. Invert
+vno     %v0, %v0, %v1     # 1 cost, ~(x | x >> 64): last OR and NOT in one
+
+# 3. 128-bit popcount
+vpopctg %v0, %v0          # 1 cost, popcount of each doubleword (VE1)
+vzero   %v1               # 1 cost, = vgbm %v1, 0
+vsumqg  %v0, %v0, %v1     # 1 cost, add the two doubleword counts into a 128-bit result
+
+vst     %v0, 0(%r2), 3    # 0 cost, store result (ABI)
+```
+- z17: 1 cost `vclzq %v0, %v0`
+
+
 
 ## Cost Chart for `cttz`
 - `<without zero poison> / <with zero poison>`
