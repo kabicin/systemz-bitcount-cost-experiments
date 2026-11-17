@@ -160,6 +160,15 @@ srlk   %r2, %r0, 24          # 1 cost, shift the top byte down -> result
                              # 9 total cost
 ```
 
+- z15/z16: 4 cost
+```nasm
+ahik   %r0, %r2, -1          # 1 cost, r0 = x - 1                (32-bit)
+ncrk   %r0, %r0, %r2         # 1 cost, r0 = (x - 1) & ~x         (32-bit and-with-complement)
+llgfr  %r0, %r0              # 1 cost, zero the upper 32 bits of the register
+popcnt %r2, %r0, 8           # 1 cost, count all 64 bits at once (M3 = 8)
+                             # 4 total cost
+```
+
 ## Cost Chart for `ctpop` lowering
 | | i8 | i16 | i32 | i64 | i128 |
 |---|---|---|---|---|---|
