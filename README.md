@@ -183,6 +183,14 @@ ctzg  %r2, %r2         # 1 total cost
 ```
 
 #### Element width: **16 bits**
+- z15/z16: 4 cost
+```nasm
+ahik   %r0, %r2, -1      # 1 cost, r0 = x - 1
+ncrk   %r0, %r0, %r2     # 1 cost, r0 = (x - 1) & ~x
+llghr  %r0, %r0          # 1 cost, zero-extend the low halfword to 64 bits
+popcnt %r2, %r0, 8       # 1 cost, count the 1 bits in all 64 bits
+                         # 4 total cost
+```
 
 - (cttz) z17: 2 cost
 ```nasm
@@ -196,6 +204,15 @@ ctzg  %r2, %r2 # 1 total cost
 ```
 
 #### Element width: **8 bits**
+
+- z15/z16: 4 cost
+```nasm
+ahik   %r0, %r2, -1      # 1 cost, r0 = x - 1
+ncrk   %r0, %r0, %r2     # 1 cost, r0 = (x - 1) & ~x
+llgcr  %r0, %r0          # 1 cost, zero-extend the low byte to 64 bits
+popcnt %r2, %r0, 8       # 1 cost, count the 1 bits in all 64 bits
+                         # 4 total cost
+```
 
 - (cttz) z17: 2 cost
 ```nasm
