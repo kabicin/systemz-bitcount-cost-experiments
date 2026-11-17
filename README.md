@@ -6,9 +6,19 @@ kernels with the upstream and patched `opt`, then `llc`, for z13–z17, and
 times the code with `llvm-mca`.
 
 ## Table of Contents
+- [Cost Chart for `ctlz`](#cost-chart-for-ctlz)
 - [Cost Chart for `cttz`](#cost-chart-for-cttz)
 - [Cost Chart for `ctpop`](#cost-chart-for-ctpop)
-  
+
+## Cost Chart for `ctlz`
+
+| | i8 | i16 | i32 | i64 | i128 | 128-bit vector | 256-bit vector |
+|---|---|---|---|---|---|---|---|
+| z13 | 1 | 1 | 1 | 1 | 26 | 1 | 2 |
+| z14 | 1 | 1 | 1 | 1 | 24| 1 | 2 |
+| z15 / z16 | 1 | 1 | 1 | 1 | 24 | 1 | 2 |
+| z17 | 1 | 1 | 1  | 1  | 1 | 1 | 2 |
+
 ## Cost Chart for `cttz`
 - `<without zero poison> / <with zero poison>`
 
