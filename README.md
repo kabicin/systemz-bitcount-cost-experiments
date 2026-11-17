@@ -129,6 +129,21 @@ xilf  %r2, 63  # 1 cost, r2 = r2 ^ 63
                # 4 total cost
 ```
 
+- (cttz and cttz_zero_poison) z15 / z16: 3 cost
+    - Using: `popcount((x - 1) & ~x)`
+    - z15+ added `ncgrk` (and-with-complement) and `popcnt`
+    - Why? `(x - 1) & ~x` gives exactly N ones at the bottom, where N is the trailing zeros count.
+
+```nasm
+lay    %r0, -1(%r2)   # 1 cost, r0 = x - 1
+ncgrk  %r0, %r0, %r2  # 1 cost, r0 = (x - 1) & ~x    (and-with-complement)
+popcnt %r2, %r0, 8    # 1 cost, r2 = # of 1s in r0
+                      # 3 total cost
+```
+
+- (cttz and cttz_zero_poison) z17: 1 cost
+    - Using: `ctzg` at 1 total cost.
+
 ## Cost Chart for `ctpop` lowering
 | | i8 | i16 | i32 | i64 | i128 |
 |---|---|---|---|---|---|
