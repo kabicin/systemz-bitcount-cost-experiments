@@ -115,6 +115,40 @@ vst     %v0, 0(%r2), 3    # 0 cost, store result (ABI)
 - z17: 1 cost `vclzq %v0, %v0`
 
 
+#### Element width: **64 bits**
+
+- z13 / z14 / z15 / z16: 1 cost
+```nasm
+flogr   %r2, %r2          # 1 total cost, r2 = leading zeros of x (x = 0 -> 64)
+```
+
+- z17: 1 cost
+```nasm
+clzg    %r2, %r2          # 1 total cost, r2 = leading zeros of x (x = 0 -> 64)
+```
+
+#### Element width: **32 bits**
+
+- (ctlz) z13 / z14 / z15 / z16: 3 cost
+```nasm
+llgfr   %r0, %r2          # 1 cost, zero-extend x from 32 to 64 bits
+flogr   %r2, %r0          # 1 cost, count leading zeros over 64 bits
+aghi    %r2, -32          # 1 cost, subtract the 32 zeros llgfr added
+                          # 3 total cost
+```
+- (ctlz_with_poison) z13 / z14 / z15 / z16: 2 cost
+```nasm
+sllg    %r0, %r2, 32      # 1 cost, move x into the top 32 bits
+flogr   %r2, %r0          # 1 cost, count leading zeros
+                          # 2 total cost
+```
+
+- z17: 1 total cost `clzg %r2, %r0`
+
+#### Element width: **16 bits**
+
+#### Element width: **8 bits**
+
 
 ## Cost Chart for `cttz`
 - `<without zero poison> / <with zero poison>`
