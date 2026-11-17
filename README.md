@@ -40,10 +40,26 @@ measurement next to its estimate:
   so the same driver works for i128 and vector types. `@intrinsic` and `@split` are not timed on hardware: their
   by-value arguments depend on the ABI and a call each is mostly call overhead.
 - `--hw` stops at once on any machine that is not s390x. Instead, build on another machine, copy the repo over
-  and run only `./toy_on_z.sh` / `cpp/run_on_z.sh`. `--cpus`, `ROUNDS=5` and `CC=clang` work as before.
+  and run `./run_on_z.sh` (toys, then the C++ examples; or `./toy_on_z.sh` / `cpp/run_on_z.sh` alone).
+  `--cpus`, `ROUNDS=5` and `CC=clang` work as before.
 - Results go to `build-z/` and `records/hw-history.csv` (function column `<toy>/<test>` for toys).
 - The mca estimate column is upstream cycles / patched cycles for the same test, so it compares directly with the
   measured speedup. A level newer than the machine is reported as not supported.
+
+### Getting the results off the Z machine
+The Z machine needs only `gcc` and shell tools. `./run_on_z.sh` ends by packing this run's rows, the printed
+tables and `make_report.py` into `export-z/<machine>-<time>/` and `export-z/<machine>-<time>.tar.gz`, and prints
+the `scp` command. On any machine with Python 3:
+```bash
+scp zhost:path/to/export-z/z16-20261117-101500.tar.gz .
+pip install openpyxl                                        # once
+python3 make_report.py z16-20261117-101500.tar.gz           # in a repo checkout: all sheets
+tar xzf z16-*.tar.gz && cd z16-* && python3 make_report.py hw-history.csv   # bundle alone: hardware sheets only
+```
+`make_report.py` writes `bitcount-improvements.xlsx`: Summary, Cost Model, Toy Timings and C++ Timings (the
+`llvm-mca` estimates, read from the `out/results.txt` files after `./run_all.sh`) and "Hardware (IBM Z)" (measured
+ns, speedup, the estimate, and an Effect column with a 5% band). Pass several bundles to compare machines; the
+newest row per machine, `-march` and function wins. Without `openpyxl` it writes `hardware.csv` instead.
 
 ## Table of Contents
 - [Cost Chart for `ctlz`](#cost-chart-for-ctlz)

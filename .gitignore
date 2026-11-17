@@ -10,6 +10,7 @@ __pycache__/
 
 # IBM Z hardware runs (cpp/run_on_z.sh, toy_on_z.sh)
 build-z/
+export-z/
 
 # Editors
 .vscode/
