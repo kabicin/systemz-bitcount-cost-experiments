@@ -14,7 +14,22 @@ times the code with `llvm-mca`.
 | z14 | 5 | 8 | 9 | 6 / 4 | 6 | 1 | 2 |
 | z15 / z16 | 4 | 4 | 4 | 3 | 6 | 1 | 2 |
 | z17 | 2 / 1 | 2 / 1 | 2 / 1  | 1  | 1 | 1 | 2 |
- 
+
+Count Trailing Zeros
+- There are two possibilities when using CTTZ, first (`i1 false` is `ISD::CTTZ`) is fully defined, when `x = 0` it returns the total number of bits of the type. Second (`i1 true` is `ISD::CTTZ_ZERO_POISON`), relaxes the need to count trailing zeros when `x = 0` (i.e., the total number of bits of the type) and allow returning a poison value, so the compiler assumes that the `x` provided is `!= 0`. 
+
+**`llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.cpp`**
+```cpp
+case Intrinsic::cttz: {
+  SDValue Arg = getValue(I.getArgOperand(0));                               // x 
+  ConstantInt *CI = cast<ConstantInt>(I.getArgOperand(1));                  // i1 true/false
+  EVT Ty = Arg.getValueType();
+  setValue(&I, DAG.getNode(CI->isZero() ? ISD::CTTZ : ISD::CTTZ_ZERO_POISON,// if i1 is false, then use cttz, otherwise, use cttz_zero_poison
+                           sdl, Ty, Arg));
+  return;
+}
+```
+
 
 #### Element width: **128 bits**
 
@@ -75,7 +90,7 @@ return DAG.getNode(ISD::CTPOP, dl, VT, Tmp);                        // popcount(
   vl      %v0, 0(%r3), 3  # 0 cost, load
   vgbm    %v1, 65535      # 1 cost, v1 = all ones
   vaq     %v1, %v0, %v1   # 1 cost, v1 = x + (-1) = x - 1
-  vnc     %v0, %v1, %v0   # 1 cost, v0 = (x - 1) & ~x   (complement)
+  vnc     %v0, %v1, %v0   # 1 cost, v0 = (x - 1) & ~x   (and-with-complement)
   vpopct  %v0, %v0        # 1 cost, popcount of per each v16i8
   vgbm    %v1, 0          # 1 cost, v1 = 0
   vsumb   %v0, %v0, %v1   # 1 cost, sums v16i8 into a v4i32 result
@@ -85,6 +100,34 @@ return DAG.getNode(ISD::CTPOP, dl, VT, Tmp);                        // popcount(
                           # 8 total cost
   ```
 - Actually, `vsumb` -> `vsumgf` -> `vsumqg` can be simplified to `vsumb` -> `vsumqf` but possibly addressed in another PR for `lowerCTPOP`.
+
+#### Element width: **64 bits**
+- (cttz) z13 / z14: 6 cost
+  - < z15 there is no and-with-complement (`vnc`) instruction, instead the equivalent expression is used `a & ~b = (a & b) ^ a`
+  - this is using a general register unlike the 128-bit case, so `vpopct` can't be used, but also it would take more instructions to use popcount anyways. Instead we have something better, `flogr`.
+  - `flogr` can count the number of leading zeros which allows reworking the number trailing zeros by taking `64 - flogr((x-1) & ~x)` based on the expression analyzed earlier.
+```nasm
+lay %r0, -1(%r2)  # 1 cost, r0 = x - 1
+ngr %r2, %r0      # 1 cost, r2 = x & (x-1)
+xgr %r2, %r0      # 1 cost, r2 = (x & (x-1)) ^ (x-1) = ~x & (x-1)
+flogr %r0, %r2    # 1 cost, r0 = # of leading zeros
+lghi %r2, 64      # 1 cost, r2 = 64
+sgr %r2, %r0      # 1 cost, r2 = 64 - r0
+                  # 6 total cost
+```
+
+- (cttz_zero_poison) z13 / z14: 4 cost
+  - Using: `flogr(x & -x) ^ 63`
+  - When `x = 0`, `x & - x` has `flogr` return 64 and `64 ^ 63 = 127` which is wrong (but OK since zero is poison)
+  - When `x != 0`, `flogr(x & -x) ^ 63` returns the same values as `64 - flogr((x-1) & ~x)` cheaper by 2 instructions
+
+```nasm
+lcgr  %r0, %r2 # 1 cost, r0 = -x
+ngr   %r0, %r2 # 1 cost, r0 = x & -x
+flogr %r2, %r0 # 1 cost, r2 = # of leading zeros 
+xilf  %r2, 63  # 1 cost, r2 = r2 ^ 63
+               # 4 total cost
+```
 
 ## Cost Chart for `ctpop` lowering
 | | i8 | i16 | i32 | i64 | i128 |
