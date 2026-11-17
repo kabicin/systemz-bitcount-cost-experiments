@@ -1,8 +1,8 @@
 # Written by cpp/run_cpp.py; read by cpp/run_on_z.sh.
-built: 2026-11-15T00:37:15
-llvm_commit: 82c882f2469f
-patch_fingerprint: 0d23fac90d
-clang: Apple clang version 21.0.0 (clang-2100.4.1.1)
+built: 2026-11-17T13:59:20
+llvm_commit: 8dc5ca2680a0
+patch_fingerprint: clean
+clang: clang version 23.0.0git (https://github.com/llvm/llvm-project.git bd6bfba3e50343c112a04b639394ab85be17c29b)
 source: cpp/examples.cpp
 cpus: z13 z14 z15 z16 z17
 upstream: opt-upstream

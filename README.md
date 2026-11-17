@@ -5,6 +5,46 @@ Runnable experiments for the SystemZ bit-count cost patch (branch
 kernels with the upstream and patched `opt`, then `llc`, for z13–z17, and
 times the code with `llvm-mca`.
 
+## Using your own `llvm-project`
+Point the scripts at your checkout (its tools are read from `<path>/build/bin`).
+`./build_llvm.sh` builds them there: it configures once (Release, assertions,
+SystemZ only, no clang), builds `opt llc llvm-mca`, and builds `opt-upstream`
+from the commit before your patch (`--upstream-ref` to change it). It never
+leaves your checkout on another commit.
+```bash
+export LLVM_PROJECT=~/code/llvm-project   # default: ../llvm-project
+./build_llvm.sh                           # --test runs the SystemZ cost-model lit tests,
+                                          # --run runs ./run_all.sh afterwards, -h for all options
+./run_all.sh --cpus z13,z17
+```
+Rerun `./build_llvm.sh` after every change to the patch; the experiments do not rebuild anything.
+
+- `LLVM_BIN=/dir` uses tools from another directory (e.g. `/usr/local/bin`) instead.
+- `opt-upstream` in that directory is optional; it enables the upstream-vs-patched comparisons.
+- Single tools can be set with `OPT`, `OPT_UPSTREAM`, `LLC`, `LLVM_MCA`, `CLANG`.
+
+### Estimate vs. real hardware
+Every example has both: the `llvm-mca` estimate (any machine) and a measurement on real IBM Z (s390x Linux with `gcc`).
+On an IBM Z machine, `./run_all.sh --hw` runs all the estimates, then times the code on the machine and prints each
+measurement next to its estimate:
+
+| Examples | Estimate | Hardware run | Driver |
+|---|---|---|---|
+| the 11 toy folders | `bitcount_toy.py` | `toy_on_z.sh` | `toy_bench.c` |
+| the 4 C++ examples | `cpp/run_cpp.py` | `cpp/run_on_z.sh` | `cpp/bench.c` |
+
+- The hardware run times the objects in each `prebuilt/` folder (`<toy>/prebuilt/`, `cpp/prebuilt/`), which the
+  estimate step rebuilt in the same run, so estimate and measurement use the same code. It checks every result
+  against reference code first, so a wrong result is reported instead of timed.
+- Toys time `@loop` and `@mix` (ns per element) and `@slp2/4/8` (ns per call of 2, 4 or 8 values). These use pointers,
+  so the same driver works for i128 and vector types. `@intrinsic` and `@split` are not timed on hardware: their
+  by-value arguments depend on the ABI and a call each is mostly call overhead.
+- `--hw` stops at once on any machine that is not s390x. Instead, build on another machine, copy the repo over
+  and run only `./toy_on_z.sh` / `cpp/run_on_z.sh`. `--cpus`, `ROUNDS=5` and `CC=clang` work as before.
+- Results go to `build-z/` and `records/hw-history.csv` (function column `<toy>/<test>` for toys).
+- The mca estimate column is upstream cycles / patched cycles for the same test, so it compares directly with the
+  measured speedup. A level newer than the machine is reported as not supported.
+
 ## Table of Contents
 - [Cost Chart for `ctlz`](#cost-chart-for-ctlz)
 - [Cost Chart for `cttz`](#cost-chart-for-cttz)

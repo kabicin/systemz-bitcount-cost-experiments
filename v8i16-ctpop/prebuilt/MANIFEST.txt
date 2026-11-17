@@ -1,0 +1,5 @@
+# Written by bitcount_toy.py; read by toy_on_z.sh.
+built: 2026-11-17T13:59:17
+llvm_commit: 8dc5ca2680a0
+patch_fingerprint: clean
+cpus: z13 z14 z15 z16 z17

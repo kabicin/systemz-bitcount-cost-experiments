@@ -119,5 +119,5 @@ popcount_u128:                          # @popcount_u128
 .Lfunc_end3:
 	.size	popcount_u128, .Lfunc_end3-popcount_u128
                                         # -- End function
-	.ident	"Apple clang version 21.0.0 (clang-2100.4.1.1)"
+	.ident	"clang version 23.0.0git (https://github.com/llvm/llvm-project.git bd6bfba3e50343c112a04b639394ab85be17c29b)"
 	.section	".note.GNU-stack","",@progbits

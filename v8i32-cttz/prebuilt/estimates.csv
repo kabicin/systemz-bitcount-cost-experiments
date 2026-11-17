@@ -1,0 +1,6 @@
+cpu,test,upstream_cycles,patched_cycles
+z13,loop,2.007,2.007
+z14,loop,2.007,2.007
+z15,loop,2.007,2.007
+z16,loop,2.007,2.007
+z17,loop,2.007,2.007

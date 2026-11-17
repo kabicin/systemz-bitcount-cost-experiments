@@ -14,9 +14,10 @@ For each CPU:
   3. llc generates the IBM Z assembly.
   4. Each extern "C" function is timed with llvm-mca's model of the CPU.
 
-clang++ is taken from $CLANG, else from the LLVM build if it has one, else from
-PATH. Only its front end is used; every optimization and code-generation step
-is the LLVM build being tested.
+The LLVM build is $LLVM_PROJECT/build/bin (default ../llvm-project; $LLVM_BIN
+overrides the tools directory). clang++ is taken from $CLANG, else from that
+build if it has one, else from PATH. Only its front end is used; every
+optimization and code-generation step is the LLVM build being tested.
 
 Results are printed, written to cpp/out/results.txt, and appended to
 records/cpp-history.csv together with the LLVM commit and a fingerprint of the
@@ -40,7 +41,7 @@ sys.path.insert(0, ROOT)
 import bitcount_toy as bt  # noqa: E402  (shared parsing and llvm-mca helpers)
 
 sys.dont_write_bytecode = True
-LLVM_SRC = os.environ.get("LLVM_SRC", os.path.join(ROOT, "..", "llvm-project"))
+LLVM_SRC = os.path.expanduser(os.environ.get("LLVM_SRC", bt.LLVM_PROJECT))
 TRIPLE = "s390x-linux-gnu"
 CPUS = ["z13", "z14", "z15", "z16", "z17"]
 HISTORY = os.path.join(ROOT, "records", "cpp-history.csv")

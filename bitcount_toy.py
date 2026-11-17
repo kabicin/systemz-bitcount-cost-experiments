@@ -3,6 +3,8 @@
 
     ./bitcount_toy.py i128-ctlz              (or i128-ctlz/run.sh)
     ./bitcount_toy.py i64-cttz --cpus z13,z17
+    ./bitcount_toy.py i64-cttz --no-prebuilt   (do not refresh <folder>/prebuilt/)
+    LLVM_PROJECT=~/code/llvm-project ./bitcount_toy.py i64-cttz   (your own checkout)
 
 The folder name gives the type and intrinsic. For each CPU it reports:
   1. the cost opt reports (upstream and patched) vs. instructions emitted
@@ -16,15 +18,24 @@ The folder name gives the type and intrinsic. For each CPU it reports:
 Cycles come from llvm-mca's model of each CPU: a static model with no cache
 misses and perfect branch prediction. Compare rows; it is not wall-clock time.
 Results are printed and saved to <folder>/out/results.txt.
+
+It also writes <folder>/prebuilt/: the upstream and patched kernels as object
+files for each CPU, and the llvm-mca estimates for @loop, @slpN and @mix in the
+units that toy_on_z.sh measures on IBM Z, so the two can be compared.
 """
 import argparse
+import csv
+import datetime
 import os
 import re
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BIN = os.environ.get("LLVM_BIN", os.path.join(HERE, "..", "llvm-project", "build", "bin"))
+# Your llvm-project checkout: set LLVM_PROJECT=/path/to/llvm-project (tools are
+# taken from <it>/build/bin). LLVM_BIN overrides the tools directory directly.
+LLVM_PROJECT = os.path.expanduser(os.environ.get("LLVM_PROJECT", os.path.join(HERE, "..", "llvm-project")))
+BIN = os.path.expanduser(os.environ.get("LLVM_BIN", os.path.join(LLVM_PROJECT, "build", "bin")))
 OPT = os.environ.get("OPT", os.path.join(BIN, "opt"))
 OPT_UP = os.environ.get("OPT_UPSTREAM", os.path.join(BIN, "opt-upstream"))
 LLC = os.environ.get("LLC", os.path.join(BIN, "llc"))
@@ -57,6 +68,18 @@ def asm(ll, cpu, opt=None):
         bc = run([opt, "-mtriple=" + TRIPLE, "-mcpu=" + cpu, "-O2", ll, "-o", "-"])
         return run([LLC, "-mtriple=" + TRIPLE, "-mcpu=" + cpu, "-o", "-"], stdin=bc).decode()
     return run([LLC, "-mtriple=" + TRIPLE, "-mcpu=" + cpu, ll, "-o", "-"]).decode()
+
+
+def llvm_git(*args):
+    r = subprocess.run(["git", "-C", LLVM_PROJECT, *args], capture_output=True)
+    return r.stdout.decode().strip() if r.returncode == 0 else ""
+
+
+def patch_fingerprint():
+    """Short hash of the uncommitted changes in the LLVM checkout ('clean' if none)."""
+    import hashlib
+    diff = llvm_git("diff", "HEAD")
+    return hashlib.sha1(diff.encode()).hexdigest()[:10] if diff else "clean"
 
 
 def body(text, fn):
@@ -104,6 +127,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("folder")
     ap.add_argument("--cpus", default="z13,z14,z15,z16,z17")
+    ap.add_argument("--no-prebuilt", action="store_true",
+                    help="do not refresh <folder>/prebuilt/ (the objects toy_on_z.sh uses)")
     a = ap.parse_args()
 
     folder = os.path.abspath(a.folder)
@@ -117,7 +142,7 @@ def main():
     ll = os.path.join(folder, "kernels.ll")
     for t in (OPT, LLC, MCA, ll):
         if not os.path.exists(t):
-            sys.exit("error: %s not found (set LLVM_BIN, or run new_toy.py)" % t)
+            sys.exit("error: %s not found (set LLVM_PROJECT or LLVM_BIN, or run new_toy.py)" % t)
     have_up = os.access(OPT_UP, os.X_OK)
     cpus = a.cpus.split(",")
     out = os.path.join(folder, "out")
@@ -129,6 +154,7 @@ def main():
         report.append(s)
 
     rows = {}
+    est = []  # [cpu, test, upstream cycles, patched cycles] for toy_on_z.sh
     for cpu in cpus:
         texts = {"patched": asm(ll, cpu, OPT)}
         if have_up:
@@ -188,6 +214,28 @@ def main():
             r["same"] = {fn: [i for _, i in body(texts["upstream"], fn)] == [i for _, i in body(text, fn)]
                          for fn in r["fns"]}
         rows[cpu] = r
+        if not a.no_prebuilt:
+            # The same code as object files for linking on IBM Z, and the llvm-mca
+            # estimate for each test in the unit toy_bench.c measures: cycles per
+            # element (loop, mix) or per call (slpN).
+            pd = os.path.join(folder, "prebuilt", cpu)
+            os.makedirs(pd, exist_ok=True)
+            for k, opt in (("upstream", OPT_UP), ("patched", OPT)):
+                if k in texts:
+                    bc = run([opt, "-mtriple=" + TRIPLE, "-mcpu=" + cpu, "-O2", ll, "-o", "-"])
+                    with open(os.path.join(pd, k + ".o"), "wb") as f:
+                        f.write(run([LLC, "-mtriple=" + TRIPLE, "-mcpu=" + cpu, "-filetype=obj", "-o", "-"], stdin=bc))
+            cyc = {}
+            for k, t in texts.items():
+                lp = [i for inl, i in body(t, "loop") if inl]
+                el = max(1, sum(STORE_BYTES.get(mnem(i), 0) for i in lp) // max(1, elem_bytes))
+                cyc[k, "loop"] = mca(lp, cpu, os.path.join(out, "%s.loop.%s.s" % (cpu, k))) / el
+                for n in r["slp"]:
+                    cyc[k, "slp%d" % n] = r["slp"][n][k][1]
+                if k in r["mix"]:
+                    cyc[k, "mix"] = r["mix"][k][1]
+            for test in ["loop"] + ["slp%d" % n for n in r["slp"]] + (["mix"] if r["mix"] else []):
+                est.append([cpu, test, cyc.get(("upstream", test), ""), cyc[("patched", test)]])
 
     say("%s %s on IBM Z (opt -O2 + llc, cycles from llvm-mca)\n" % (ty, op))
     say("1. Reported cost vs. instructions emitted (standalone%s)\n"
@@ -280,6 +328,19 @@ def main():
     with open(os.path.join(out, "results.txt"), "w") as f:
         f.write("\n".join(report) + "\n")
     print("\nSaved to %s" % os.path.relpath(os.path.join(out, "results.txt")))
+
+    if not a.no_prebuilt:
+        pb = os.path.join(folder, "prebuilt")
+        with open(os.path.join(pb, "MANIFEST.txt"), "w") as f:
+            f.write("# Written by bitcount_toy.py; read by toy_on_z.sh.\n")
+            f.write("built: %s\nllvm_commit: %s\npatch_fingerprint: %s\ncpus: %s\n"
+                    % (datetime.datetime.now().isoformat(timespec="seconds"),
+                       llvm_git("rev-parse", "--short", "HEAD") or "unknown", patch_fingerprint(), " ".join(cpus)))
+        with open(os.path.join(pb, "estimates.csv"), "w", newline="") as f:
+            wr = csv.writer(f)
+            wr.writerow(["cpu", "test", "upstream_cycles", "patched_cycles"])
+            wr.writerows([[c, t, "%.3f" % u if u != "" else "", "%.3f" % p] for c, t, u, p in est])
+        print("Refreshed %s (objects for toy_on_z.sh on IBM Z hardware)" % os.path.relpath(pb))
 
 
 if __name__ == "__main__":
