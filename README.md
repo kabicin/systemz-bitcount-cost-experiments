@@ -169,6 +169,19 @@ popcnt %r2, %r0, 8           # 1 cost, count all 64 bits at once (M3 = 8)
                              # 4 total cost
 ```
 
+- (cttz) z17:
+    - 64 bit is the size required for `ctzg`, `ctzg` needs to be widened so i32 CTTZ is marked `Promote` on z17
+```nasm
+oihl  %r2, 1               # 1 cost, 1: set bit 32 (stop bit)
+ctzg  %r2, %r2             # 1 cost
+                           # 2 total cost
+```
+
+- (cttz_zero_poison) z17:
+```nasm
+ctzg  %r2, %r2         # 1 total cost
+```
+
 ## Cost Chart for `ctpop` lowering
 | | i8 | i16 | i32 | i64 | i128 |
 |---|---|---|---|---|---|
