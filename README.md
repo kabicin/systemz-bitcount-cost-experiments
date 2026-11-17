@@ -37,7 +37,46 @@ case Intrinsic::ctlz: {
 
 #### Element width: **128 bits**
 
-- z15/z16: 24 cost
+- z13: 26 cost
+```nasm
+vl      %v0, 0(%r3), 3    # 0 cost, load x (ABI)
+
+# 1. Smear the leading 1 into every lower bit (identical to z14–z16)
+vrepib  %v1, 1            # 1 cost
+vsrl    %v1, %v0, %v1     # 1 cost, x >> 1 (bit shift)
+vo      %v0, %v0, %v1     # 1 cost, x |= ...
+vrepib  %v1, 2            # 1 cost
+vsrl    %v1, %v0, %v1     # 1 cost, x >> 2
+vo      %v0, %v0, %v1     # 1 cost
+vrepib  %v1, 4            # 1 cost
+vsrl    %v1, %v0, %v1     # 1 cost, x >> 4
+vo      %v0, %v0, %v1     # 1 cost
+vrepib  %v1, 8            # 1 cost
+vsrlb   %v1, %v0, %v1     # 1 cost, x >> 8 (byte shift)
+vo      %v0, %v0, %v1     # 1 cost
+vrepib  %v1, 16           # 1 cost
+vsrlb   %v1, %v0, %v1     # 1 cost, x >> 16
+vo      %v0, %v0, %v1     # 1 cost
+vrepib  %v1, 32           # 1 cost
+vsrlb   %v1, %v0, %v1     # 1 cost, x >> 32
+vo      %v0, %v0, %v1     # 1 cost
+vrepib  %v1, 64           # 1 cost
+vsrlb   %v1, %v0, %v1     # 1 cost, x >> 64
+
+# 2. Invert (identical)
+vno     %v0, %v0, %v1     # 1 cost, ~(x | x >> 64)
+
+# 3. 128-bit popcount: z13 has only the byte form
+vpopct  %v0, %v0, 0       # 1 cost, 16 byte counts (M3 = 0: bytes only)
+vzero   %v1               # 1 cost, zero addend (= vgbm %v1, 0)
+vsumb   %v0, %v0, %v1     # 1 cost, 16 bytes -> 4 words
+vsumgf  %v0, %v0, %v1     # 1 cost, 4 words -> 2 doublewords
+vsumqg  %v0, %v0, %v1     # 1 cost, 2 dwords -> 1 quadword
+
+vst     %v0, 0(%r2), 3    # 0 cost, store result (ABI)
+```
+
+- z14/z15/z16: 24 cost
 ```nasm
 vl      %v0, 0(%r3), 3    # 0 cost, load x (ABI)
 
