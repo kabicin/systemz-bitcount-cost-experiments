@@ -180,6 +180,37 @@ clzg    %r2, %r0          # 1 cost
 
 #### Element width: **8 bits**
 
+- (ctlz) z13 / z14 / z15 / z16: 4 cost
+```nasm
+llgcr   %r0, %r2          # 1 cost, zero-extend 8 -> 64 bits
+flogr   %r0, %r0          # 1 cost, count leading zeros over 64 bits
+aghi    %r0, -32          # 1 cost, subtract 32 (i32 -> i64 step)
+ahik    %r2, %r0, -24     # 1 cost, subtract 24 (i8 -> i32 step)
+                          # 4 total cost
+```
+
+- (ctlz_with_poison) z13 / z14 / z15 / z16: 2 cost
+```nasm
+sllg    %r0, %r2, 56      # 1 cost, move x into the top 8 bits
+flogr   %r2, %r0          # 1 cost, count leading zeros
+                          # 2 total cost
+```
+
+- (ctlz) z17: 4 cost
+```nasm
+llgcr   %r0, %r2          # 1 cost
+clzg    %r0, %r0          # 1 cost, clzg in place of flogr
+aghi    %r0, -32          # 1 cost
+ahik    %r2, %r0, -24     # 1 cost
+                          # 4 total cost
+```
+
+- (ctlz) z17: 2 cost
+```nasm
+sllg    %r0, %r2, 56      # 1 cost
+clzg    %r2, %r0          # 1 cost
+                          # 2 total cost
+```
 
 ## Cost Chart for `cttz`
 - `<without zero poison> / <with zero poison>`
